@@ -1,0 +1,73 @@
+#include <vector>
+#include <iostream>
+#include <pcl/io/pcd_io.h>
+#include <pcl/point_types.h>
+#include <pcl/common/common.h>
+#include <pcl/console/time.h>  // 控制台计算时间
+
+int main()
+{
+	pcl::console::TicToc time;
+	// --------------------------------读取点云------------------------------------
+	pcl::PointCloud<pcl::PointXYZ>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZ>);
+	if (pcl::io::loadPCDFile<pcl::PointXYZ>("E://data//pclData//table_scene_lms400.pcd", *cloud) == -1)
+	{
+		PCL_ERROR("Cloudn't read file!");
+		return -1;
+	}
+	std::cout << "滤波前点的个数为:" << cloud->size() << std::endl;
+	// 参数设置
+	float gridScale = 0.02; // 格网边长
+	time.tic();
+	// 1、获取点云最值
+	pcl::PointXYZ minPt, maxPt;
+	pcl::getMinMax3D(*cloud, minPt, maxPt);
+	// 2、计算XYZ方向上体素的最大个数
+	int x_size = std::ceil((maxPt.x - minPt.x) / gridScale); 
+	int y_size = std::ceil((maxPt.y - minPt.y) / gridScale);
+	int z_size = std::ceil((maxPt.z - minPt.z) / gridScale);
+	int voxel_number = static_cast<int>(x_size * y_size * z_size);
+	// 3、为每个点云附体素编号，并在相应体素中记录其点云索引
+	std::vector<std::vector<int>> all_label;
+	all_label.resize(voxel_number);
+
+	for (int i = 0; i < cloud->points.size(); ++i)
+	{
+		int x_index = floor((cloud->points[i].x - minPt.x) / gridScale);
+		int y_index = floor((cloud->points[i].y - minPt.y) / gridScale);
+		int z_index = floor((cloud->points[i].z - minPt.z) / gridScale);
+		int voxel_index = z_index * (x_size * y_size) + y_index * x_size + x_index;
+
+		all_label[voxel_index].push_back(i);
+	}
+	// 4、计算体素内所有点的质心
+	pcl::PointCloud<pcl::PointXYZ>::Ptr filter_cloud(new pcl::PointCloud<pcl::PointXYZ>);
+	for (size_t i = 0; i < voxel_number; ++i)
+	{
+		if (all_label[i].size() == 0)   // 体素中无点云
+		{
+			continue;
+		}
+		else
+		{
+			float mX = 0.0, mY = 0.0, mZ = 0.0;
+
+			for (size_t j = 0; j < all_label[i].size(); ++j)
+			{
+				mX += cloud->points[all_label[i][j]].x;
+				mY += cloud->points[all_label[i][j]].y;
+				mZ += cloud->points[all_label[i][j]].z;
+			}
+			mX /= all_label[i].size();
+			mY /= all_label[i].size();
+			mZ /= all_label[i].size();
+
+			filter_cloud->push_back(pcl::PointXYZ{ mX,mY,mZ });
+		}
+	}
+	std::cout << "体素滤波用时：" << time.toc() << " ms" << std::endl;
+	std::cout << "滤波后点的个数为:" << filter_cloud->size() << std::endl;
+	pcl::io::savePCDFileBinary("668.pcd", *filter_cloud);
+
+	return 0;
+}
